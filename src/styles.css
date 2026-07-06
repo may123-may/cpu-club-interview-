@@ -1,0 +1,223 @@
+@import "tailwindcss" source(none);
+@source "../src";
+@import "tw-animate-css";
+
+@import "@fontsource/cinzel/400.css";
+@import "@fontsource/cinzel/600.css";
+@import "@fontsource/cinzel/700.css";
+@import "@fontsource/inter/400.css";
+@import "@fontsource/inter/500.css";
+@import "@fontsource/inter/600.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-rank: var(--rank);
+  --color-rank-glow: var(--rank-glow);
+  --color-monarch-gold: var(--monarch-gold);
+  --font-display: "Cinzel", serif;
+  --font-body: "Inter", sans-serif;
+}
+
+:root {
+  --radius: 0.625rem;
+  --background: oklch(0.07 0.02 270);
+  --foreground: oklch(0.96 0.01 270);
+  --card: oklch(0.10 0.03 270 / 0.6);
+  --card-foreground: oklch(0.96 0.01 270);
+  --popover: oklch(0.10 0.03 270);
+  --popover-foreground: oklch(0.96 0.01 270);
+  --primary: oklch(0.65 0.20 280);
+  --primary-foreground: oklch(0.98 0 0);
+  --secondary: oklch(0.20 0.05 270);
+  --secondary-foreground: oklch(0.96 0.01 270);
+  --muted: oklch(0.15 0.03 270);
+  --muted-foreground: oklch(0.70 0.05 270);
+  --accent: oklch(0.55 0.22 270);
+  --accent-foreground: oklch(0.98 0 0);
+  --destructive: oklch(0.60 0.25 25);
+  --destructive-foreground: oklch(0.98 0 0);
+  --border: oklch(0.55 0.18 270 / 0.3);
+  --input: oklch(0.20 0.05 270);
+  --ring: oklch(0.65 0.20 280);
+
+  /* Dynamic rank color (JS will override on transitions) */
+  --rank: oklch(0.50 0.15 250);
+  --rank-glow: oklch(0.70 0.20 250);
+  --monarch-gold: oklch(0.82 0.18 85);
+}
+
+.dark { color-scheme: dark; }
+
+@layer base {
+  * { border-color: var(--color-border); }
+  html, body, #root { min-height: 100%; }
+  body {
+    background-color: #050508;
+    color: var(--color-foreground);
+    font-family: var(--font-body);
+    overflow-x: hidden;
+  }
+}
+
+/* ---------- Solo Leveling effects ---------- */
+@utility font-display { font-family: var(--font-display); letter-spacing: 0.04em; }
+
+@utility rank-glow {
+  text-shadow:
+    0 0 10px var(--rank-glow),
+    0 0 30px var(--rank-glow),
+    0 0 60px color-mix(in oklab, var(--rank-glow) 50%, transparent);
+}
+
+@utility gate-border {
+  border: 1px solid color-mix(in oklab, var(--rank-glow) 60%, transparent);
+  box-shadow:
+    0 0 20px color-mix(in oklab, var(--rank-glow) 40%, transparent),
+    inset 0 0 20px color-mix(in oklab, var(--rank-glow) 15%, transparent);
+}
+
+@utility hunter-input {
+  background: linear-gradient(180deg,
+    color-mix(in oklab, var(--rank-glow) 5%, #0a0a14) 0%,
+    #050508 100%);
+  border: 1px solid color-mix(in oklab, var(--rank-glow) 50%, transparent);
+  box-shadow:
+    0 0 15px color-mix(in oklab, var(--rank-glow) 30%, transparent),
+    inset 0 1px 0 color-mix(in oklab, var(--rank-glow) 20%, transparent);
+  color: var(--color-foreground);
+  transition: box-shadow 200ms, border-color 200ms;
+}
+@utility hunter-input-focus {
+  border-color: var(--rank-glow);
+  box-shadow:
+    0 0 30px color-mix(in oklab, var(--rank-glow) 60%, transparent),
+    inset 0 1px 0 color-mix(in oklab, var(--rank-glow) 30%, transparent);
+  outline: none;
+}
+
+@utility hunter-button {
+  position: relative;
+  padding: 0.85rem 1.75rem;
+  background: linear-gradient(180deg, color-mix(in oklab, var(--rank-glow) 10%, #0a0a14), #050508);
+  border: 1px solid color-mix(in oklab, var(--rank-glow) 60%, transparent);
+  color: var(--color-foreground);
+  font-family: var(--font-display);
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 200ms, box-shadow 200ms, border-color 200ms;
+  box-shadow: 0 0 15px color-mix(in oklab, var(--rank-glow) 25%, transparent);
+}
+@utility hunter-button-hover {
+  border-color: var(--rank-glow);
+  transform: scale(1.03);
+  box-shadow:
+    0 0 30px color-mix(in oklab, var(--rank-glow) 60%, transparent),
+    inset 0 0 20px color-mix(in oklab, var(--rank-glow) 15%, transparent);
+}
+
+@utility shake {
+  animation: shake 0.5s;
+}
+@keyframes shake {
+  0%,100% { transform: translateX(0); }
+  10%,30%,50%,70%,90% { transform: translateX(-8px); }
+  20%,40%,60%,80% { transform: translateX(8px); }
+}
+
+@keyframes pulse-glow {
+  0%,100% { opacity: 0.5; transform: scale(1); }
+  50%     { opacity: 1;   transform: scale(1.05); }
+}
+@utility pulse-glow { animation: pulse-glow 3s ease-in-out infinite; }
+
+@keyframes gate-pulse {
+  0%,100% { box-shadow: 0 0 40px var(--rank-glow), inset 0 0 40px color-mix(in oklab, var(--rank-glow) 30%, transparent); }
+  50%     { box-shadow: 0 0 80px var(--rank-glow), inset 0 0 80px color-mix(in oklab, var(--rank-glow) 50%, transparent); }
+}
+@utility gate-pulse { animation: gate-pulse 4s ease-in-out infinite; }
+
+@utility chat-msg-aria {
+  border-left: 2px solid var(--rank-glow);
+  background: linear-gradient(90deg, color-mix(in oklab, var(--rank-glow) 12%, transparent) 0%, transparent 100%);
+  box-shadow: 0 0 20px color-mix(in oklab, var(--rank-glow) 20%, transparent);
+}
+@utility chat-msg-user {
+  border-right: 2px solid var(--monarch-gold);
+  background: linear-gradient(270deg, color-mix(in oklab, var(--monarch-gold) 10%, transparent) 0%, transparent 100%);
+}
+
+[dir="rtl"] .chat-msg-user { border-right: none; border-left: 2px solid var(--monarch-gold); }
+
+/* ---------- Dungeon gate background ---------- */
+.dg-gate {
+  position: absolute;
+  border-radius: 50%;
+  border: 1.5px solid color-mix(in oklab, var(--rank-glow) 45%, transparent);
+  box-shadow:
+    0 0 40px color-mix(in oklab, var(--rank-glow) 18%, transparent),
+    inset 0 0 80px color-mix(in oklab, var(--rank-glow) 8%, transparent);
+}
+.dg-gate-1 { width: 600px; height: 600px; animation: dg-gate-pulse 4s ease-in-out infinite; }
+.dg-gate-2 { width: 820px; height: 820px; animation: dg-gate-pulse 6s ease-in-out infinite reverse; opacity: 0.6; }
+.dg-gate-3 { width: 1040px; height: 1040px; animation: dg-gate-pulse 9s ease-in-out infinite; opacity: 0.35; }
+@keyframes dg-gate-pulse {
+  0%,100% { transform: scale(0.96); opacity: 0.55; }
+  50%     { transform: scale(1.04); opacity: 1; }
+}
+
+.dg-rune {
+  position: absolute;
+  color: color-mix(in oklab, var(--rank-glow) 90%, white);
+  text-shadow:
+    0 0 10px #5b3fcf,
+    0 0 20px var(--rank-glow);
+  opacity: 0;
+  animation-name: dg-rune-float;
+  animation-iteration-count: infinite;
+  animation-timing-function: ease-in-out;
+  will-change: transform, opacity;
+  transform: rotate(var(--rune-rot, 0deg));
+  user-select: none;
+}
+@keyframes dg-rune-float {
+  0%   { transform: translateY(20px) rotate(var(--rune-rot, 0deg)); opacity: 0; }
+  15%  { opacity: 0.7; }
+  85%  { opacity: 0.5; }
+  100% { transform: translateY(-120px) rotate(calc(var(--rune-rot, 0deg) + 8deg)); opacity: 0; }
+}
+
+/* ---------- Hide scrollbar (keep scroll behaviour) ---------- */
+@utility no-scrollbar {
+  scrollbar-width: none;       /* Firefox */
+  -ms-overflow-style: none;    /* IE/Edge */
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;               /* Chrome / Safari / Opera */
+}
