@@ -175,6 +175,13 @@
 
 [dir="rtl"] .chat-msg-user { border-right: none; border-left: 2px solid var(--monarch-gold); }
 
+/* AI detection badge */
+.ai-badge {
+  text-shadow: 0 0 6px currentColor;
+  letter-spacing: 0.15em;
+  opacity: 0.85;
+}
+
 /* ---------- Dungeon gate background ---------- */
 .dg-gate {
   position: absolute;

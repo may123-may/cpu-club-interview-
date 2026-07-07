@@ -14,6 +14,7 @@ import {
   verifyPassword,
   sendInterviewTurn,
   saveInterview,
+  detectAI,
 } from "@/lib/aria.functions";
 import { playKey } from "@/lib/keySound";
 
@@ -26,11 +27,25 @@ type Step =
   | "password"
   | "locked"
   | "interview"
+  | "chooserole"
   | "done";
+
+const ALL_ROLES = [
+  "President",
+  "Project Manager",
+  "Logistics Manager",
+  "Media Manager",
+  "HR Manager",
+  "Technical Manager",
+  "Sponsorship Manager",
+  "Finance Manager",
+  "Organization Manager",
+];
 
 interface Msg {
   role: "user" | "assistant";
   content: string;
+  aiPercent?: number;
 }
 
 const LANG_OPTIONS: Array<{
@@ -219,7 +234,10 @@ export default function InterviewApp() {
   const [answeredCount, setAnsweredCount] = useState(0);
   const [rankFlash, setRankFlash] = useState<Rank | null>(null);
   const [pendingDone, setPendingDone] = useState(false);
-  const [recommendation, setRecommendation] = useState<null | "interview" | "meeting">(null);
+  const [rating, setRating] = useState<number | null>(null);
+  const [messageToPresident, setMessageToPresident] = useState("");
+  const [transcriptDownloaded, setTranscriptDownloaded] = useState(false);
+  const [selectedRole, setSelectedRole] = useState<string | null>(null);
   const lastRankRef = useRef<Rank>("E");
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -236,6 +254,7 @@ export default function InterviewApp() {
   const verifyPw = useServerFn(verifyPassword);
   const sendTurn = useServerFn(sendInterviewTurn);
   const save = useServerFn(saveInterview);
+  const detectAiText = useServerFn(detectAI);
 
   const rank = rankForAnswers(answeredCount);
   const info = RANKS[rank];
@@ -353,34 +372,32 @@ export default function InterviewApp() {
     if (!candidate || !input.trim() || loading) return;
     const msg = input.trim();
     setInput("");
-    const newHistory = [...messages, { role: "user" as const, content: msg }];
+    const userMsg: Msg = { role: "user", content: msg };
+    const newHistory = [...messages, userMsg];
     setMessages(newHistory);
-    // Calculate the new count BEFORE the state update (answeredCount is stale in closure)
     const newAnsweredCount = answeredCount + 1;
     setAnsweredCount(newAnsweredCount);
     setLoading(true);
     try {
-      // Pass the last user message so ARIA can respond to it.
-      // The history already contains the full conversation including this message,
-      // but we also pass it as the explicit 'message' field for correct Gemini formatting.
-      // We slice off the last item from history (the user's msg) to avoid duplication
-      // since aria.functions.ts appends message to contents itself.
-      const res = await sendTurn({
-        data: {
-          candidateId: candidate.id,
-          language: lang,
-          history: messages, // history WITHOUT the new user message (aria.functions appends it)
-          message: msg,      // the actual user message, not null
-          questionNumber: newAnsweredCount, // tells server which question this is (triggers close at 10)
-        },
-      });
+      const [detectRes, res] = await Promise.all([
+        detectAiText({ data: { text: msg } }),
+        sendTurn({
+          data: {
+            candidateId: candidate.id,
+            language: lang,
+            history: messages,
+            message: msg,
+            questionNumber: newAnsweredCount,
+          },
+        }),
+      ]);
+      const userMsgWithAI: Msg = { role: "user", content: msg, aiPercent: detectRes.percent ?? undefined };
+      const updatedHistory = [...messages, userMsgWithAI];
       const finalHistory = [
-        ...newHistory,
+        ...updatedHistory,
         { role: "assistant" as const, content: res.reply },
       ];
       setMessages(finalHistory);
-      // End the interview when 10 questions have been answered (S-rank reached)
-      // regardless of what the server says — the limit is enforced client-side.
       if (res.complete || newAnsweredCount >= 10) {
         try {
           await save({
@@ -395,7 +412,6 @@ export default function InterviewApp() {
           console.error("save failed", e);
         }
         setAnsweredCount(10);
-        // Don't navigate immediately — wait for the last Typewriter to finish
         setPendingDone(true);
       }
     } catch (e) {
@@ -411,7 +427,7 @@ export default function InterviewApp() {
     } finally {
       setLoading(false);
     }
-  }, [candidate, input, loading, messages, lang, sendTurn, save, answeredCount]);
+  }, [candidate, input, loading, messages, lang, sendTurn, save, answeredCount, detectAiText]);
 
   // Smooth scroll for new messages (useEffect triggers)
   const scrollToBottom = useCallback(() => {
@@ -431,6 +447,9 @@ export default function InterviewApp() {
   // Download conversation as .txt file on the PC
   const downloadConversation = useCallback(() => {
     if (!messages.length) return;
+    const extra = rating !== null
+      ? `\n\n=== FEEDBACK ===\nNote: ${rating}/5\nPoste choisi: ${selectedRole ?? "—"}\nMessage au président: ${messageToPresident}`
+      : "";
     const lines = messages.map((m) =>
       `[${m.role === "assistant" ? "A.R.I.A" : (candidate?.name ?? "Candidat")}]\n${m.content}`
     );
@@ -440,6 +459,7 @@ export default function InterviewApp() {
       `Langue : ${lang.toUpperCase()}`,
       "",
       ...lines,
+      extra,
     ].join("\n\n");
     const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -448,7 +468,34 @@ export default function InterviewApp() {
     a.download = `entretien_${(candidate?.name ?? "candidat").replace(/\s+/g, "_")}_${new Date().toISOString().slice(0, 10)}.txt`;
     a.click();
     URL.revokeObjectURL(url);
-  }, [messages, candidate, lang]);
+    setTranscriptDownloaded(true);
+  }, [messages, candidate, lang, rating, messageToPresident]);
+
+  const exitSite = () => {
+    const missing: string[] = [];
+    if (rating === null) missing.push(lang === "fr" ? "la note" : "the rating");
+    if (!messageToPresident.trim()) missing.push(lang === "fr" ? "le message pour l'ex-président" : "the message for the ex-president");
+    if (!transcriptDownloaded) missing.push(lang === "fr" ? "le téléchargement de la transcription" : "the transcript download");
+    if (missing.length > 0) {
+      const msg = lang === "fr"
+        ? `⚠️ Veuillez compléter avant de quitter :\n• ${missing.join("\n• ")}`
+        : `⚠️ Please complete before exiting:\n• ${missing.join("\n• ")}`;
+      alert(msg);
+      return;
+    }
+    const w = window.open("", "_self");
+    if (w) w.close();
+    window.close();
+    if (!window.closed) {
+      document.body.innerHTML = `
+        <div style="display:flex;align-items:center;justify-content:center;height:100vh;background:#050508;color:#ffd966;font-family:'Cinzel',serif;flex-direction:column;gap:1rem;text-align:center;padding:2rem;">
+          <div style="font-size:3rem;">👋</div>
+          <h1 style="font-size:1.5rem;letter-spacing:0.15em;">Merci, Hunter.</h1>
+          <p style="color:#888;font-size:0.85rem;letter-spacing:0.1em;">${lang === "fr" ? "Tu peux fermer cet onglet." : "You can close this tab."}</p>
+        </div>
+      `;
+    }
+  };
 
   const reset = () => {
     setStep("lang");
@@ -463,7 +510,10 @@ export default function InterviewApp() {
     setLangChosen(null);
     setIntroTyped(false);
     setPendingDone(false);
-    setRecommendation(null);
+    setRating(null);
+    setMessageToPresident("");
+    setTranscriptDownloaded(false);
+    setSelectedRole(null);
     lastRankRef.current = "E";
   };
 
@@ -894,11 +944,11 @@ export default function InterviewApp() {
                       borderRightWidth: m.role === "user" ? 3 : undefined,
                     }}
                   >
-                    {m.role === "assistant" && (
+                    {m.role === "assistant" ? (
                       <div className="font-display text-[10px] tracking-[0.3em] text-muted-foreground mb-1">
                         A.R.I.A
                       </div>
-                    )}
+                    ) : null}
                     {m.role === "assistant"
                       ? (i === messages.length - 1
                         ? <Typewriter
@@ -910,15 +960,67 @@ export default function InterviewApp() {
                             scrollToBottom();
                             if (pendingDone) {
                               setPendingDone(false);
-                              setStep("done");
+                              setTimeout(() => setStep("chooserole"), 3000);
                             }
                           }}
                         />
                         : renderMessageContent(m.content))
                       : m.content}
+                    {m.role === "user" && m.aiPercent !== undefined && (
+                      <div
+                        className="ai-badge font-display text-[10px] tracking-wider mt-1.5"
+                        style={{
+                          color: m.aiPercent > 60 ? "#ff5555" : m.aiPercent > 30 ? "#ffd966" : "#55ff88",
+                        }}
+                      >
+                        Détection AI · {m.aiPercent}%
+                      </div>
+                    )}
                   </div>
                 </motion.div>
               ))}
+
+            {/* CHOOSE ROLE */}
+            {step === "chooserole" && candidate && (
+              <motion.div
+                key="chooserole"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="flex flex-col items-center gap-6 py-8"
+              >
+                <div
+                  className="chat-msg-aria rounded-lg px-4 py-4 text-sm sm:text-base leading-relaxed font-display max-w-lg"
+                  style={{ borderLeftWidth: 3 }}
+                >
+                  <div className="font-display text-[10px] tracking-[0.3em] text-muted-foreground mb-2">
+                    A.R.I.A · FINAL QUESTION
+                  </div>
+                  <p className="whitespace-pre-wrap">
+                    {lang === "fr"
+                      ? `L'entretien pour ${candidate.role} est terminé. Mais une dernière question demeure...\n\nParmi tous les postes du CPU Club, lequel choisirais-tu ?`
+                      : `The interview for ${candidate.role} is complete. But one final question remains...\n\nAmong all the CPU Club positions, which would you choose?`}
+                  </p>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 w-full max-w-xl px-2">
+                  {ALL_ROLES.filter((r) => r !== candidate.role).map((role) => (
+                    <motion.button
+                      key={role}
+                      initial={{ opacity: 0, y: 12 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={() => {
+                        setSelectedRole(role);
+                        setTimeout(() => setStep("done"), 400);
+                      }}
+                      className="hunter-button hover:hunter-button-hover text-xs py-4 px-2 w-full text-center leading-tight"
+                    >
+                      {role}
+                    </motion.button>
+                  ))}
+                </div>
+              </motion.div>
+            )}
 
             {/* DONE */}
             {step === "done" && candidate && (
@@ -956,51 +1058,71 @@ export default function InterviewApp() {
 
 
 
-                {/* ── Recommendation card ── */}
+                {/* ── Star Rating ── */}
                 <motion.div
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.6, duration: 0.6 }}
-                  className="w-full max-w-md mt-4 rounded-xl border px-5 py-5 space-y-4"
+                  className="w-full max-w-md rounded-xl border px-5 py-5"
                   style={{
                     borderColor: "color-mix(in oklab, var(--rank-glow) 40%, transparent)",
                     background: "rgba(0,0,0,0.55)",
                     boxShadow: "0 0 24px color-mix(in oklab, var(--rank-glow) 15%, transparent)",
                   }}
                 >
-                  <div className="font-display text-[10px] tracking-[0.3em] text-muted-foreground">
-                    ⚙️ SYSTEM FEEDBACK
+                  <div className="font-display text-[10px] tracking-[0.3em] text-muted-foreground mb-3">
+                    ⭐ RECOMMENDATION
                   </div>
-                  <p className="font-display text-sm tracking-wide" style={{ color: "#ffd966" }}>
-                    Est-ce que cette méthode d'interview IA est meilleure qu'un simple meeting classique ?
+                  <p className="font-display text-sm tracking-wide mb-4" style={{ color: "#ffd966" }}>
+                    {lang === "fr" ? "Notez votre expérience :" : "Rate your experience:"}
                   </p>
-                  {recommendation === null ? (
-                    <div className="flex flex-col sm:flex-row gap-3 pt-1">
+                  <div className="flex justify-center gap-2">
+                    {[1, 2, 3, 4, 5].map((star) => (
                       <button
-                        onClick={() => setRecommendation("interview")}
-                        className="hunter-button hover:hunter-button-hover flex-1 text-xs py-2.5"
+                        key={star}
+                        onClick={() => setRating(star)}
+                        className="text-3xl transition-all hover:scale-125 active:scale-95"
+                        style={{
+                          color: star <= (rating ?? 0) ? "#ffd966" : "#444",
+                          textShadow: star <= (rating ?? 0) ? "0 0 12px #ffd966" : "none",
+                        }}
                       >
-                        🏆 Meilleure qu'un meeting
+                        ★
                       </button>
-                      <button
-                        onClick={() => setRecommendation("meeting")}
-                        className="hunter-button hover:hunter-button-hover flex-1 text-xs py-2.5"
-                      >
-                        💬 Je préfère un meeting
-                      </button>
-                    </div>
-                  ) : (
-                    <motion.p
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      className="font-display text-sm text-center"
-                      style={{ color: recommendation === "interview" ? "#ffd966" : "#8a6cff" }}
-                    >
-                      {recommendation === "interview"
-                        ? "⚔️ Ton verdict est enregistré dans le Système. Merci, Hunter."
-                        : "💬 Noté. Le Système apprend de chaque retour. Merci, Hunter."}
-                    </motion.p>
+                    ))}
+                  </div>
+                  {rating !== null && (
+                    <p className="font-display text-xs tracking-widest text-muted-foreground mt-3">
+                      {rating}/5
+                    </p>
                   )}
+                </motion.div>
+
+                {/* ── Message for President ── */}
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.8, duration: 0.6 }}
+                  className="w-full max-w-md rounded-xl border px-5 py-5"
+                  style={{
+                    borderColor: "color-mix(in oklab, var(--rank-glow) 40%, transparent)",
+                    background: "rgba(0,0,0,0.55)",
+                    boxShadow: "0 0 24px color-mix(in oklab, var(--rank-glow) 15%, transparent)",
+                  }}
+                >
+                  <div className="font-display text-[10px] tracking-[0.3em] text-muted-foreground mb-3">
+                    ✉️ MESSAGE FOR THE EX-PRESIDENT
+                  </div>
+                  <textarea
+                    value={messageToPresident}
+                    onChange={(e) => setMessageToPresident(e.target.value)}
+                    placeholder={lang === "fr" ? "Écrivez un message pour l'ancien président..." : "Write a message for the ex-president..."}
+                    rows={3}
+                    className="w-full rounded-lg bg-black/60 border px-3 py-2 text-sm font-body text-foreground placeholder:text-muted-foreground/50 resize-none"
+                    style={{
+                      borderColor: "color-mix(in oklab, var(--rank-glow) 40%, transparent)",
+                    }}
+                  />
                 </motion.div>
 
                 {/* ── Download Transcript Button ── */}
@@ -1009,9 +1131,33 @@ export default function InterviewApp() {
                   animate={{ opacity: 1 }}
                   transition={{ delay: 1, duration: 0.5 }}
                   onClick={downloadConversation}
-                  className="mt-2 hunter-button hover:hunter-button-hover px-6 py-2 text-xs"
+                  className="hunter-button hover:hunter-button-hover px-6 py-2 text-xs"
+                  style={{
+                    borderColor: transcriptDownloaded ? "#55ff88" : undefined,
+                    color: transcriptDownloaded ? "#55ff88" : undefined,
+                  }}
                 >
-                  📥 {lang === "fr" ? "Télécharger la transcription" : "Download Transcript"}
+                  📥 {transcriptDownloaded
+                    ? (lang === "fr" ? "✓ Téléchargé" : "✓ Downloaded")
+                    : (lang === "fr" ? "Télécharger la transcription" : "Download Transcript")}
+                </motion.button>
+
+                {/* ── Exit Button (always visible) ── */}
+                <motion.button
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: 0.3, duration: 0.5 }}
+                  onClick={exitSite}
+                  className="hunter-button hover:hunter-button-hover px-8 py-3 text-sm"
+                  style={{
+                    borderColor: rating !== null && messageToPresident.trim() && transcriptDownloaded ? "#55ff88" : "#ff5555",
+                    color: rating !== null && messageToPresident.trim() && transcriptDownloaded ? "#55ff88" : "#ff5555",
+                    boxShadow: rating !== null && messageToPresident.trim() && transcriptDownloaded
+                      ? "0 0 30px rgba(85,255,136,0.4)"
+                      : "0 0 30px rgba(255,85,85,0.4)",
+                  }}
+                >
+                  {lang === "fr" ? "🚪 TERMINER ET QUITTER" : "🚪 FINISH AND EXIT"}
                 </motion.button>
               </motion.div>
             )}
@@ -1033,8 +1179,7 @@ export default function InterviewApp() {
             step === "password" ||
             step === "interview" ||
             step === "unknown" ||
-            step === "locked" ||
-            step === "done") && (
+            step === "locked") && (
               <div
                 className="border-t px-4 sm:px-6 py-4"
                 style={{
@@ -1132,13 +1277,12 @@ export default function InterviewApp() {
                   </form>
                 )}
                 {(step === "unknown" ||
-                  step === "locked" ||
-                  step === "done") && (
+                  step === "locked") && (
                     <button
                       onClick={reset}
                       className="hunter-button hover:hunter-button-hover w-full"
                     >
-                      {step === "done" ? t.returnSurface : t.returnBtn}
+                      {t.returnBtn}
                     </button>
                   )}
                 {loading && (

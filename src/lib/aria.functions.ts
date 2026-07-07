@@ -26,6 +26,18 @@ export const verifyPassword = createServerFn({ method: "POST" })
     return { ok: c.password === data.password };
   });
 
+const roleKeywords: Record<string, string[]> = {
+  President: ["leader", "vision", "team", "motivat", "responsibility", "manage"],
+  "Project Manager": ["project", "plan", "task", "deadline", "scope", "milestone"],
+  "Logistics Manager": ["logistic", "event", "supply", "transport", "setup", "venue"],
+  "Media Manager": ["content", "social", "media", "design", "post", "reach"],
+  "HR Manager": ["recruit", "onboard", "culture", "member", "team", "conflict"],
+  "Technical Manager": ["tech", "code", "workshop", "develop", "skill", "repository"],
+  "Sponsorship Manager": ["sponsor", "partner", "fund", "pitch", "company", "proposal"],
+  "Finance Manager": ["budget", "finance", "expense", "income", "report", "fund"],
+  "Organization Manager": ["organize", "document", "process", "structure", "coordinate"],
+};
+
 // ---------- 3) Send an interview turn — calls Grok with that candidate's key ----------
 const MessageSchema = z.object({
   role: z.enum(["user", "assistant", "system"]),
@@ -114,11 +126,61 @@ export const sendInterviewTurn = createServerFn({ method: "POST" })
     const raw = json.choices?.[0]?.message?.content ?? "";
     const complete = raw.includes("[INTERVIEW_COMPLETE]");
     const reply = raw.replace(/\[INTERVIEW_COMPLETE\]/g, "").trim();
+
+    // Simple role-topic validation: warn if reply lacks role keywords
+    const keywords = roleKeywords[c.role] ?? [];
+    const hasKeyword = keywords.some(kw => reply.toLowerCase().includes(kw));
+    if (!hasKeyword && !complete && reply.length > 20) {
+      console.warn(`[ARIA] Reply for ${c.role} (${c.name}) missing role keywords — may be off-topic`);
+    }
+
     return { reply, complete };
   });
 
 
-// ---------- 4) Save completed interview ----------
+// ---------- 4) AI Detection — analyze if text is AI-generated ----------
+export const detectAI = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => z.object({ text: z.string().min(1).max(4000) }).parse(d))
+  .handler(async ({ data }) => {
+    const apiKey = process.env.GROQ_API_KEY ?? "MISSING_KEY";
+    if (apiKey === "MISSING_KEY" || apiKey.length < 10) {
+      return { percent: null };
+    }
+    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: "llama-3.3-70b-versatile",
+        messages: [
+          {
+            role: "system",
+            content: `You are an AI text detector. Analyze the text and estimate probability (0-100) it was written by an AI.
+
+Consider:
+- Burstiness: humans vary sentence lengths; AI is uniform
+- Perplexity: humans use unexpected word choices; AI is predictable
+- Specificity: humans give real personal details; AI is generic
+- Structure: humans are organic; AI overuses perfect paragraphs and transitions
+
+Return ONLY a single integer 0-100. No other text.`,
+          },
+          { role: "user", content: data.text },
+        ],
+        temperature: 0.1,
+        max_tokens: 10,
+      }),
+    });
+    if (!res.ok) return { percent: null };
+    const json = await res.json() as { choices?: Array<{ message: { content: string } }> };
+    const raw = json.choices?.[0]?.message?.content ?? "";
+    const num = parseInt(raw, 10);
+    return { percent: isNaN(num) ? null : Math.max(0, Math.min(100, num)) };
+  });
+
+// ---------- 5) Save completed interview ----------
 export const saveInterview = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) =>
     z
